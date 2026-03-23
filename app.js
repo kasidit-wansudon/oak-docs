@@ -1,48 +1,6 @@
-// Document registry — maps display name to file path
-const DOCS = [
-  {
-    id: 'perplexity-max-readme',
-    title: 'วิธีใช้ Perplexity Max',
-    file: 'docs/README-perplexity-max-month-end.md',
-    icon: 'book'
-  },
-  {
-    id: 'perplexity-max-plan',
-    title: 'แผนใช้ Max สิ้นเดือน',
-    file: 'docs/perplexity-max-month-end-plan.md',
-    icon: 'calendar'
-  },
-  {
-    id: 'passive-income',
-    title: 'แผน Passive Income 2026',
-    file: 'docs/passive-income-plan-2026.md',
-    icon: 'trending'
-  },
-  {
-    id: 'financial-research',
-    title: 'Financial Research',
-    file: 'docs/financial-research-results.md',
-    icon: 'chart'
-  },
-  {
-    id: 'stability',
-    title: 'คู่มือสร้างความมั่นคง',
-    file: 'docs/stability-preparation-2026.md',
-    icon: 'shield'
-  },
-  {
-    id: 'business-knowledge',
-    title: 'ความรู้ธุรกิจ 2026',
-    file: 'docs/business-knowledge-2026.md',
-    icon: 'lightbulb'
-  },
-  {
-    id: 'business-knowledge-full',
-    title: 'ธุรกิจ 2026 (ฉบับเต็ม)',
-    file: 'docs/business-knowledge-2026-full.md',
-    icon: 'file'
-  }
-];
+// Oak Docs — Dynamic document loader
+// Reads docs.json manifest to build navigation automatically.
+// Add new .md files to Google Drive → run sync → they appear here.
 
 // SVG icon templates
 const ICONS = {
@@ -52,64 +10,35 @@ const ICONS = {
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
   lightbulb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>',
-  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
 };
 
 // State
 let currentDoc = null;
+let DOCS = [];
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-  buildNav();
+document.addEventListener('DOMContentLoaded', async () => {
   initThemeToggle();
   initMobileMenu();
   initScrollTop();
+  setupMarkedRenderer();
 
-  // Configure marked
-  marked.setOptions({
-    breaks: true,
-    gfm: true
-  });
+  // Load document manifest dynamically
+  try {
+    const resp = await fetch('docs.json');
+    if (!resp.ok) throw new Error('Could not load docs.json');
+    DOCS = await resp.json();
+  } catch (err) {
+    console.error('Failed to load docs.json:', err);
+    DOCS = [];
+  }
 
-  // Custom renderer to wrap tables for horizontal scroll
-  const renderer = new marked.Renderer();
-  renderer.table = function(header, body) {
-    // marked v5+ passes token object; handle both signatures
-    if (typeof header === 'object' && header.header !== undefined) {
-      // Token-based API (marked >=5)
-      return false; // let default renderer handle it
-    }
-    return '<div class="table-wrapper"><table>' + header + body + '</table></div>';
-  };
+  buildNav();
 
-  // Use custom renderer for table wrapping
-  marked.use({
-    renderer: {
-      table(token) {
-        let headerRow = '<thead><tr>';
-        token.header.forEach(cell => {
-          const align = cell.align ? ` style="text-align:${cell.align}"` : '';
-          headerRow += `<th${align}>${this.parser.parseInline(cell.tokens)}</th>`;
-        });
-        headerRow += '</tr></thead>';
-
-        let bodyRows = '<tbody>';
-        token.rows.forEach(row => {
-          bodyRows += '<tr>';
-          row.forEach(cell => {
-            const align = cell.align ? ` style="text-align:${cell.align}"` : '';
-            bodyRows += `<td${align}>${this.parser.parseInline(cell.tokens)}</td>`;
-          });
-          bodyRows += '</tr>';
-        });
-        bodyRows += '</tbody>';
-
-        return `<div class="table-wrapper"><table>${headerRow}${bodyRows}</table></div>`;
-      }
-    }
-  });
-
-  // Load from hash or default
+  // Load from URL hash
   const hash = window.location.hash.slice(1);
   if (hash) {
     const doc = DOCS.find(d => d.id === hash);
@@ -117,14 +46,53 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Build sidebar navigation
+// Configure marked.js with custom table wrapper
+function setupMarkedRenderer() {
+  marked.setOptions({ breaks: true, gfm: true });
+
+  marked.use({
+    renderer: {
+      table(token) {
+        let headerRow = '<thead><tr>';
+        token.header.forEach(cell => {
+          const align = cell.align ? ' style="text-align:' + cell.align + '"' : '';
+          headerRow += '<th' + align + '>' + this.parser.parseInline(cell.tokens) + '</th>';
+        });
+        headerRow += '</tr></thead>';
+
+        let bodyRows = '<tbody>';
+        token.rows.forEach(row => {
+          bodyRows += '<tr>';
+          row.forEach(cell => {
+            const align = cell.align ? ' style="text-align:' + cell.align + '"' : '';
+            bodyRows += '<td' + align + '>' + this.parser.parseInline(cell.tokens) + '</td>';
+          });
+          bodyRows += '</tr>';
+        });
+        bodyRows += '</tbody>';
+
+        return '<div class="table-wrapper"><table>' + headerRow + bodyRows + '</table></div>';
+      }
+    }
+  });
+}
+
+// Build sidebar navigation from DOCS array
 function buildNav() {
   const nav = document.getElementById('navList');
+  nav.innerHTML = '';
+
+  if (DOCS.length === 0) {
+    nav.innerHTML = '<div style="padding:1rem;color:var(--color-text-muted);font-size:var(--text-sm)">ไม่พบเอกสาร</div>';
+    return;
+  }
+
   DOCS.forEach(doc => {
     const btn = document.createElement('button');
     btn.className = 'nav-item';
     btn.dataset.id = doc.id;
-    btn.innerHTML = ICONS[doc.icon] + `<span>${doc.title}</span>`;
+    const icon = ICONS[doc.icon] || ICONS.file;
+    btn.innerHTML = icon + '<span>' + doc.title + '</span>';
     btn.addEventListener('click', () => {
       loadDoc(doc);
       closeMobileMenu();
@@ -138,15 +106,12 @@ async function loadDoc(doc) {
   if (currentDoc === doc.id) return;
   currentDoc = doc.id;
 
-  // Update nav active state
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.toggle('active', item.dataset.id === doc.id);
   });
 
-  // Update hash
   window.location.hash = doc.id;
 
-  // Show loading
   const body = document.getElementById('markdownBody');
   body.innerHTML = '<div class="loading">กำลังโหลด</div>';
 
@@ -157,7 +122,7 @@ async function loadDoc(doc) {
     body.innerHTML = marked.parse(md);
     body.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
-    body.innerHTML = `<div class="welcome"><h1>ไม่สามารถโหลดเอกสารได้</h1><p>${err.message}</p></div>`;
+    body.innerHTML = '<div class="welcome"><h1>ไม่สามารถโหลดเอกสารได้</h1><p>' + err.message + '</p></div>';
   }
 }
 
@@ -182,7 +147,7 @@ function updateToggleIcons(theme) {
   const moon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
   document.querySelectorAll('[data-theme-toggle]').forEach(t => {
     t.innerHTML = theme === 'dark' ? sun : moon;
-    t.setAttribute('aria-label', `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`);
+    t.setAttribute('aria-label', 'Switch to ' + (theme === 'dark' ? 'light' : 'dark') + ' mode');
   });
 }
 
